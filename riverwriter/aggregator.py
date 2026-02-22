@@ -1,4 +1,8 @@
-"""Aggregates raw ticks into 1-minute OHLCV bars."""
+"""Aggregates raw ticks into 1-minute OHLCV bars.
+
+Output matches RAW_BAR_SCHEMA from core system (minus knowledge_time and
+bar_hash which are added at write time).
+"""
 
 from __future__ import annotations
 
@@ -8,23 +12,14 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Schema for output bars
-BAR_DTYPES = {
-    "timestamp": "datetime64[ns, UTC]",
-    "open": "float64",
-    "high": "float64",
-    "low": "float64",
-    "close": "float64",
-    "volume": "float64",
-    "tick_count": "int32",
-    "spread_avg": "float64",
-}
+# Columns produced by aggregation (source added here, knowledge_time + bar_hash at write)
+AGG_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume", "source"]
 
 
 def aggregate_ticks(ticks: list[dict]) -> pd.DataFrame:
     """Aggregate a list of tick dicts into 1-minute OHLCV bars.
 
-    Returns a DataFrame with columns matching BAR_DTYPES.
+    Returns a DataFrame with columns: timestamp, open, high, low, close, volume, source.
     Returns an empty DataFrame if no ticks provided.
     """
     if not ticks:
@@ -32,7 +27,6 @@ def aggregate_ticks(ticks: list[dict]) -> pd.DataFrame:
 
     df = pd.DataFrame(ticks)
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-    df["spread"] = df["ask"] - df["bid"]
     df["total_volume"] = df["ask_volume"] + df["bid_volume"]
 
     # Floor to minute
@@ -47,26 +41,23 @@ def aggregate_ticks(ticks: list[dict]) -> pd.DataFrame:
         "low": grouped["mid"].min(),
         "close": grouped["mid"].last(),
         "volume": grouped["total_volume"].sum(),
-        "tick_count": grouped["mid"].count().astype("int32"),
-        "spread_avg": grouped["spread"].mean(),
     })
 
     bars = bars.reset_index(drop=True)
-    bars["timestamp"] = bars["timestamp"].dt.tz_localize(None).dt.tz_localize("UTC")
+    # Ensure nanosecond-precision UTC timestamps to match RAW_BAR_SCHEMA
+    bars["timestamp"] = bars["timestamp"].dt.tz_localize(None).dt.tz_localize("UTC").astype("datetime64[ns, UTC]")
+    bars["source"] = "dukascopy"
 
     return bars
 
 
 def _empty_bars() -> pd.DataFrame:
     """Return an empty DataFrame with the correct bar schema."""
-    return pd.DataFrame(
-        columns=["timestamp", "open", "high", "low", "close", "volume", "tick_count", "spread_avg"]
-    ).astype({
+    return pd.DataFrame(columns=AGG_COLUMNS).astype({
         "open": "float64",
         "high": "float64",
         "low": "float64",
         "close": "float64",
         "volume": "float64",
-        "tick_count": "int32",
-        "spread_avg": "float64",
+        "source": "object",
     })

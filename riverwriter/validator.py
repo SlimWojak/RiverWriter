@@ -94,21 +94,24 @@ def _validate_pair(pair: str, df: pd.DataFrame) -> dict:
     completeness = _estimate_completeness(df)
     result["checks"]["completeness"] = completeness
 
-    # 6. Spread anomalies
-    if "spread_avg" in df.columns and len(df) > 100:
-        median_spread = df["spread_avg"].median()
-        if median_spread > 0:
-            anomalies = (df["spread_avg"] > median_spread * 10).sum()
-            result["checks"]["spread_anomalies"] = {"count": int(anomalies)}
+    # 6. Source provenance check
+    if "source" in df.columns:
+        sources = df["source"].unique().tolist()
+        result["checks"]["sources"] = {"values": sources}
 
-    # 7. Price spike check (>5% jump within a day)
+    # 7. Bar hash integrity
+    if "bar_hash" in df.columns:
+        null_hashes = df["bar_hash"].isna().sum()
+        result["checks"]["bar_hash_nulls"] = {"count": int(null_hashes), "pass": null_hashes == 0}
+
+    # 8. Price spike check (>5% jump within a day)
     price_spikes = _find_price_spikes(df)
     result["checks"]["price_spikes_5pct"] = {
         "count": len(price_spikes),
         "examples": price_spikes[:10],
     }
 
-    # 8. Yearly row counts
+    # 9. Yearly row counts
     df["_year"] = df["timestamp"].dt.year
     yearly = df.groupby("_year").size().to_dict()
     result["checks"]["yearly_row_counts"] = {str(k): int(v) for k, v in yearly.items()}

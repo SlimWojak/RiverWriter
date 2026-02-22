@@ -26,8 +26,8 @@ LOG_DIR = PROJECT_ROOT / "logs"
 VALIDATION_REPORT_PATH = DATA_DIR / "validation_report.json"
 
 # ─── Rate Limiting & Fetch Control ───────────────────────────────────────────
-REQUEST_DELAY_SECONDS = 1.0
-MAX_HOURS_PER_RUN = 500
+REQUEST_DELAY_SECONDS = 0.25
+MAX_HOURS_PER_RUN = 1500
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 HTTP_TIMEOUT_SECONDS = 30
