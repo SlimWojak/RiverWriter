@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
@@ -102,12 +105,31 @@ class Catalog:
             self._index.add(key)
 
     def save(self):
-        """Persist catalog to disk."""
+        """Persist catalog to disk (with file lock for parallel workers)."""
+        with _catalog_lock():
+            self._save_unlocked()
+
+    def _save_unlocked(self):
+        """Write catalog without acquiring lock (caller must hold lock)."""
         config.DATA_DIR.mkdir(parents=True, exist_ok=True)
         tmp = config.CATALOG_PATH.with_suffix(".tmp")
         self.df.to_parquet(tmp, engine="pyarrow", compression="snappy", index=False)
         tmp.rename(config.CATALOG_PATH)
         logger.debug("Catalog saved with %d entries", len(self.df))
+
+    @classmethod
+    def persist_pair(cls, pair: str, pair_df: pd.DataFrame):
+        """Merge one pair's catalog rows into the on-disk catalog (parallel-safe)."""
+        with _catalog_lock():
+            cat = cls()
+            other = cat.df[cat.df["pair"] != pair] if len(cat.df) > 0 else cat.df
+            if len(pair_df) > 0:
+                cat.df = pd.concat([other, pair_df], ignore_index=True)
+            else:
+                cat.df = other
+            cat._rebuild_index()
+            cat._save_unlocked()
+            logger.debug("Persisted %d catalog entries for %s", len(pair_df), pair)
 
     def get_next_batch(self, pair: str, n: int) -> list[tuple[int, int, int, int]]:
         """Return up to `n` pending (year, month, day, hour) slots, working backward from now.
@@ -184,6 +206,25 @@ class Catalog:
             }
 
         return result
+
+
+@contextlib.contextmanager
+def _catalog_lock():
+    """Exclusive lock for catalog read-modify-write across worker processes."""
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = config.CATALOG_PATH.with_suffix(".lock")
+    with open(lock_path, "w") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def last_complete_hour() -> datetime:
+    """Most recent fully elapsed UTC hour (forex data boundary)."""
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    return now - timedelta(hours=1)
 
 
 def _is_weekend_closed(dt: datetime) -> bool:

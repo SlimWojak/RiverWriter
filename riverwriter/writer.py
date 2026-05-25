@@ -1,4 +1,4 @@
-"""Merges 1-minute bars into yearly Parquet files with dedup and validation.
+"""Atomically merges 1-minute bars into yearly Parquet files.
 
 Output conforms to RAW_BAR_SCHEMA (9 columns):
     timestamp, open, high, low, close, volume, source, knowledge_time, bar_hash
@@ -6,6 +6,7 @@ Output conforms to RAW_BAR_SCHEMA (9 columns):
 
 import hashlib
 import logging
+import os
 import tempfile
 from pathlib import Path
 
@@ -32,7 +33,7 @@ RAW_BAR_SCHEMA = pa.schema([
 def compute_bar_hashes(df: pd.DataFrame) -> pd.Series:
     """Vectorized sha256(timestamp|open|high|low|close|volume|source).
 
-    Matches core system hash computation exactly.
+    This is the RIVER bar-hash contract used by the DuckDB/GX boundary.
     """
     ts_str = df["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
     payload = (
@@ -97,7 +98,7 @@ def write_bars(pair: str, new_bars: pd.DataFrame):
     - Concatenates with new bars
     - Deduplicates on timestamp
     - Validates OHLC integrity
-    - Writes atomically with explicit RAW_BAR_SCHEMA
+    - Rewrites the affected yearly partition atomically with explicit RAW_BAR_SCHEMA
     """
     if len(new_bars) == 0:
         return
@@ -153,8 +154,6 @@ def _atomic_write_parquet(df: pd.DataFrame, path: Path):
 
     Enforces RAW_BAR_SCHEMA column order and types.
     """
-    import os
-
     # Enforce column order to match RAW_BAR_SCHEMA exactly
     col_order = [f.name for f in RAW_BAR_SCHEMA]
     df = df[col_order]

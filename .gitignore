@@ -1,8 +1,9 @@
-# Data files (large, not for git)
-data/raw/
-data/1m/
-data/catalog.parquet
-data/validation_report.json
+# Runtime data (large/local, not for git)
+data/*
+!data/.gitkeep
+*.parquet.tmp
+*.tmp
+*.lock
 
 # Python
 __pycache__/
@@ -30,4 +31,4 @@ env/
 Thumbs.db
 
 # Logs
-logs/*.log
+logs/
