@@ -7,6 +7,7 @@ import fcntl
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pyarrow as pa
@@ -230,19 +231,22 @@ def last_complete_hour() -> datetime:
 def _is_weekend_closed(dt: datetime) -> bool:
     """Check if a given UTC datetime falls in the forex weekend closure.
 
-    Forex closes Friday ~22:00 UTC and reopens Sunday ~22:00 UTC.
+    Forex week is anchored at 17:00 NY (America/New_York), DST-aware:
+    opens Sunday 17:00 NY, closes Friday 17:00 NY. Matches IBKR-live and
+    ATOM canon (ATOM forex day = 17:00 America/New_York).
     """
-    wd = dt.weekday()  # Mon=0 .. Sun=6
-    h = dt.hour
+    ny = dt.astimezone(ZoneInfo("America/New_York"))
+    wd = ny.weekday()  # Mon=0 .. Sun=6
+    h = ny.hour
 
     # Saturday: all hours closed
     if wd == 5:
         return True
-    # Sunday: closed before 22:00 UTC
-    if wd == 6 and h < 22:
+    # Sunday: closed before the 17:00 NY open
+    if wd == 6 and h < 17:
         return True
-    # Friday: closed at 22:00+ UTC
-    if wd == 4 and h >= 22:
+    # Friday: closed at/after the 17:00 NY close
+    if wd == 4 and h >= 17:
         return True
 
     return False
